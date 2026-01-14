@@ -148,8 +148,10 @@ impl BaseParams {
   ) -> Vec<Vec<u64>> {
     let lhs =
       swap_matrix_fmt(&generate_lwe_matrix_from_seed(public_seed, dim, m));
+    println!("finished lwe matrix");
     (0..db.get_matrix_width_self())
       .map(|i| {
+        println!("Handling matrix column {}", i);
         let mut col = Vec::with_capacity(m);
         for r in &lhs {
           col.push(db.vec_mult(r, i));
@@ -235,11 +237,13 @@ fn construct_rows(
   let row_width = Database::get_matrix_width(elem_size, plaintext_bits);
 
   let result = (0..m).map(|i| -> ResultBoxedError<Vec<u64>> {
+    println!("Creating matrix row {}", i);
     let mut row = Vec::with_capacity(row_width);
     let data = &elements[i];
     let bytes = base64::decode(data)?;
     let bits = bytes_to_bits_le(&bytes);
     for i in 0..row_width {
+      //println!("Creating matrix column {}", i);
       let end_bound = (i + 1) * plaintext_bits;
       if end_bound < bits.len() {
         row.push(bits_to_u64_le(&bits[i * plaintext_bits..end_bound])?);

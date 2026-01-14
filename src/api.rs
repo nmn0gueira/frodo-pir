@@ -10,6 +10,7 @@ use crate::utils::matrices::*;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::str;
+use crate::utils::random_rounded_gaussian_vector;
 
 /// A `Shard` is an instance of a database, where each row corresponds
 /// to a single element, that has been preprocessed by the server.
@@ -46,8 +47,11 @@ impl Shard {
     elem_size: usize,
     plaintext_bits: usize,
   ) -> ResultBoxedError<Self> {
+    println!("Before creating database");
     let db = Database::new(base64_strs, m, elem_size, plaintext_bits)?;
+    println!("After creating database");
     let base_params = BaseParams::new(&db, lwe_dim);
+    println!("After creating base params");
     Ok(Self { db, base_params })
   }
 
@@ -65,10 +69,13 @@ impl Shard {
   // Produces a serialized response (base64-encoded) to a serialized
   // client query: c' = b' * DB
   pub fn respond(&self, q: &Query) -> ResultBoxedError<Vec<u8>> {
+    // TODO: RESOLVE HARD-CODING
+    // get matrix width self returns omega
+    let sampled_gaussian = random_rounded_gaussian_vector(self.db.get_matrix_width_self(), 0.0, (1u64 << 43) as f64);
     let q = q.as_slice();
     let resp = Response(
       (0..self.db.get_matrix_width_self())
-        .map(|i| self.db.vec_mult(q, i))
+        .map(|i| self.db.vec_mult(q, i).wrapping_add(wrap_to_u64(sampled_gaussian[i])))
         .collect(),
     );
     let ser = bincode::serialize(&resp);
@@ -199,12 +206,13 @@ mod tests {
   use rand_core::{OsRng, RngCore};
 
   #[test]
-  fn client_query_to_server_10_times() {
-    let m = 2u32.pow(12) as usize;
-    let elem_size = 2u32.pow(8) as usize;
-    let plaintext_bits = 12usize;
-    let lwe_dim = 512;
+  fn client_query_to_server_10_times_but_correct() {
+    let m = 2u32.pow(18) as usize;  // database size
+    let elem_size = 2u32.pow(13) as usize; // w (NOT omega)
+    let plaintext_bits = 16usize; // log(p)
+    let lwe_dim = 3450; // n
     let db_elems = generate_db_elems(m, (elem_size + 7) / 8);
+    println!("generated db");
     let shard = Shard::from_base64_strings(
       &db_elems,
       lwe_dim,
@@ -212,18 +220,24 @@ mod tests {
       elem_size,
       plaintext_bits,
     )
-    .unwrap();
+        .unwrap();
+
+    println!("compressed db");
 
     let bp = shard.get_base_params();
     let cp = CommonParams::from(bp);
 
     #[allow(clippy::needless_range_loop)]
     for i in 0..10 {
+      println!("here");
       let mut qp = QueryParams::new(&cp, bp).unwrap();
       let q = qp.generate_query(i).unwrap();
 
+      println!("here2");
+
       let d_resp = shard.respond(&q).unwrap();
       let resp: Response = bincode::deserialize(&d_resp).unwrap();
+      println!("here3");
 
       let output = resp.parse_output_as_base64(&qp);
       assert_eq!(output, db_elems[i]);

@@ -1,6 +1,11 @@
 //! Utility modules for working with matrices and LWE conventions in the
 //! PIR scheme of lwe-pir.
 
+use rand_chacha::rand_core::SeedableRng;
+use rand_chacha::ChaCha20Rng;
+use rand_core::{OsRng, RngCore};
+use rand_distr::{Distribution, Normal};
+
 /// Functionality specific to the LWE setup that is used
 pub mod lwe {
   const MODULUS: u128 = 1u128 << 64;  // 2^64
@@ -59,7 +64,8 @@ pub mod matrices {
   ) -> Vec<Vec<u64>> {
     let mut a = Vec::with_capacity(width);
     let mut rng = get_seeded_rng(seed);
-    for _ in 0..width {
+    for i in 0..width {
+      println!("Treating {} of {}", i, width);
       let mut v = Vec::with_capacity(lwe_dim);
       for _ in 0..lwe_dim {
         v.push(rng.next_u64());
@@ -134,6 +140,26 @@ pub mod matrices {
     row
   }
 }
+
+pub fn random_rounded_gaussian(mean: f64, std: f64) -> i64 {
+  let mut seed = <ChaCha20Rng as SeedableRng>::Seed::default();
+  OsRng.fill_bytes(&mut seed);
+  let mut csprng = ChaCha20Rng::from_seed(seed);
+
+  let normal = Normal::new(mean, std).unwrap();
+  normal.sample(&mut csprng).round() as i64
+
+}
+
+pub fn random_rounded_gaussian_vector(width: usize, mean: f64, std: f64) -> Vec<i64> {
+  let mut row = Vec::new();
+  for _ in 0..width {
+    row.push(random_rounded_gaussian(mean, std));
+  }
+  row
+}
+
+
 
 /// Functionality related to manipulation of data formats that are used
 pub mod format {
@@ -240,5 +266,9 @@ pub mod format {
     total_bit_len: usize,
   ) -> String {
     base64::encode(bytes_from_u64_slice(v, entry_bit_len, total_bit_len))
+  }
+
+  pub fn wrap_to_u64(x: i64) -> u64 {
+    (x as u64).wrapping_add(u64::MAX/2 + 1)
   }
 }
