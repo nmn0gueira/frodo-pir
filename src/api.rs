@@ -98,8 +98,8 @@ impl Shard {
 /// query.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct QueryParams {
-  lhs: Vec<u32>,
-  rhs: Vec<u32>,
+  lhs: Vec<u64>,
+  rhs: Vec<u64>,
   elem_size: usize,
   plaintext_bits: usize,
   pub used: bool,
@@ -143,23 +143,23 @@ impl QueryParams {
 /// a client PIR query to the server DB for a particular `row_index`. It
 /// provides methods for parsing server responses.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Query(Vec<u32>);
+pub struct Query(Vec<u64>);
 impl Query {
-  pub fn as_slice(&self) -> &[u32] {
+  pub fn as_slice(&self) -> &[u64] {
     &self.0
   }
 }
 
 /// The `Response` object wraps a response from a single shard
 #[derive(Clone, Serialize, Deserialize)]
-pub struct Response(Vec<u32>);
+pub struct Response(Vec<u64>);
 impl Response {
-  pub fn as_slice(&self) -> &[u32] {
+  pub fn as_slice(&self) -> &[u64] {
     &self.0
   }
 
-  /// Parses the output as a row of u32 values
-  pub fn parse_output_as_row(&self, qp: &QueryParams) -> Vec<u32> {
+  /// Parses the output as a row of u64 values
+  pub fn parse_output_as_row(&self, qp: &QueryParams) -> Vec<u64> {
     // get parameters for rounding
     let rounding_factor = get_rounding_factor(qp.plaintext_bits);
     let rounding_floor = get_rounding_floor(qp.plaintext_bits);
@@ -183,13 +183,13 @@ impl Response {
   /// Parses the output as bytes
   pub fn parse_output_as_bytes(&self, qp: &QueryParams) -> Vec<u8> {
     let row = self.parse_output_as_row(qp);
-    bytes_from_u32_slice(&row, qp.plaintext_bits, qp.elem_size)
+    bytes_from_u64_slice(&row, qp.plaintext_bits, qp.elem_size)
   }
 
   /// Parses the output as a base64-encoded string
   pub fn parse_output_as_base64(&self, qp: &QueryParams) -> String {
     let row = self.parse_output_as_row(qp);
-    base64_from_u32_slice(&row, qp.plaintext_bits, qp.elem_size)
+    base64_from_u64_slice(&row, qp.plaintext_bits, qp.elem_size)
   }
 }
 

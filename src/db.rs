@@ -11,7 +11,7 @@ use crate::utils::matrices::*;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Database {
-  entries: Vec<Vec<u32>>,
+  entries: Vec<Vec<u64>>,
   m: usize,
   elem_size: usize,
   plaintext_bits: usize,
@@ -52,8 +52,8 @@ impl Database {
     self.entries = swap_matrix_fmt(&self.entries);
   }
 
-  pub fn vec_mult(&self, row: &[u32], col_idx: usize) -> u32 {
-    vec_mult_u32_u32(row, &self.entries[col_idx]).unwrap()
+  pub fn vec_mult(&self, row: &[u64], col_idx: usize) -> u64 {
+    vec_mult_u64_u64(row, &self.entries[col_idx]).unwrap()
   }
 
   pub fn write_to_file(&self, path: &str) -> ResultBoxedError<()> {
@@ -62,13 +62,13 @@ impl Database {
   }
 
   /// Returns the ith row of the DB matrix
-  pub fn get_row(&self, i: usize) -> Vec<u32> {
+  pub fn get_row(&self, i: usize) -> Vec<u64> {
     self.entries[i].clone()
   }
 
   /// Returns the ith DB entry as a base64-encoded string
   pub fn get_db_entry(&self, i: usize) -> String {
-    base64_from_u32_slice(
+    base64_from_u64_slice(
       &get_matrix_second_at(&self.entries, i),
       self.plaintext_bits,
       self.elem_size,
@@ -116,7 +116,7 @@ pub struct BaseParams {
   plaintext_bits: usize,
 
   public_seed: [u8; 32],
-  rhs: Vec<Vec<u32>>,
+  rhs: Vec<Vec<u64>>,
 }
 
 impl BaseParams {
@@ -145,7 +145,7 @@ impl BaseParams {
     public_seed: [u8; 32],
     dim: usize,
     m: usize,
-  ) -> Vec<Vec<u32>> {
+  ) -> Vec<Vec<u64>> {
     let lhs =
       swap_matrix_fmt(&generate_lwe_matrix_from_seed(public_seed, dim, m));
     (0..db.get_matrix_width_self())
@@ -169,10 +169,10 @@ impl BaseParams {
   }
 
   /// Computes c = s*(A*DB) using the RHS of the public parameters
-  pub fn mult_right(&self, s: &[u32]) -> ResultBoxedError<Vec<u32>> {
+  pub fn mult_right(&self, s: &[u64]) -> ResultBoxedError<Vec<u64>> {
     let cols = &self.rhs;
     (0..cols.len())
-      .map(|i| vec_mult_u32_u32(s, &cols[i]))
+      .map(|i| vec_mult_u64_u64(s, &cols[i]))
       .collect()
   }
 
@@ -196,20 +196,20 @@ impl BaseParams {
 /// `CommonParams` holds the derived uniform matrix that is used for
 /// constructing the server's public parameters and the client query.
 #[derive(Serialize, Deserialize)]
-pub struct CommonParams(Vec<Vec<u32>>);
+pub struct CommonParams(Vec<Vec<u64>>);
 impl CommonParams {
   // Returns the internal matrix
-  pub fn as_matrix(&self) -> &[Vec<u32>] {
+  pub fn as_matrix(&self) -> &[Vec<u64>] {
     &self.0
   }
 
   /// Computes b = s*A + e using the seed used to generate the matrix of
   /// the public parameters
-  pub fn mult_left(&self, s: &[u32]) -> ResultBoxedError<Vec<u32>> {
+  pub fn mult_left(&self, s: &[u64]) -> ResultBoxedError<Vec<u64>> {
     let cols = self.as_matrix();
     (0..cols.len())
       .map(|i| {
-        let s_a = vec_mult_u32_u32(s, &cols[i])?;
+        let s_a = vec_mult_u64_u64(s, &cols[i])?;
         let e = random_ternary();
         Ok(s_a.wrapping_add(e))
       })
@@ -231,10 +231,10 @@ fn construct_rows(
   m: usize,
   elem_size: usize,
   plaintext_bits: usize,
-) -> ResultBoxedError<Vec<Vec<u32>>> {
+) -> ResultBoxedError<Vec<Vec<u64>>> {
   let row_width = Database::get_matrix_width(elem_size, plaintext_bits);
 
-  let result = (0..m).map(|i| -> ResultBoxedError<Vec<u32>> {
+  let result = (0..m).map(|i| -> ResultBoxedError<Vec<u64>> {
     let mut row = Vec::with_capacity(row_width);
     let data = &elements[i];
     let bytes = base64::decode(data)?;
@@ -242,9 +242,9 @@ fn construct_rows(
     for i in 0..row_width {
       let end_bound = (i + 1) * plaintext_bits;
       if end_bound < bits.len() {
-        row.push(bits_to_u32_le(&bits[i * plaintext_bits..end_bound])?);
+        row.push(bits_to_u64_le(&bits[i * plaintext_bits..end_bound])?);
       } else {
-        row.push(bits_to_u32_le(&bits[i * plaintext_bits..])?);
+        row.push(bits_to_u64_le(&bits[i * plaintext_bits..])?);
       }
     }
     Ok(row)
