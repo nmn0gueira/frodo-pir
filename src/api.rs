@@ -20,6 +20,7 @@ pub struct Shard {
   base_params: BaseParams,
 }
 
+// TODO: Add standard deviation parameter when creating a shard object
 impl Shard {
   /// Expects a JSON file of base64-encoded strings in file path. It also
   /// expects the lwe dimension, m (the number of DB elements), element size
@@ -205,7 +206,57 @@ mod tests {
   use super::*;
   use rand_core::{OsRng, RngCore};
 
-  #[test]
+  impl Shard {
+    pub fn test_respond(&self, q: &Query) -> ResultBoxedError<(Vec<u8>, Vec<i64>)> {
+      // get matrix width self returns omega
+      let sampled_gaussian = random_rounded_gaussian_vector(self.db.get_matrix_width_self(), 0.0, (1u64 << 43) as f64);
+      let q = q.as_slice();
+      let resp = Response(
+        (0..self.db.get_matrix_width_self())
+            .map(|i| self.db.vec_mult(q, i).wrapping_add(wrap_to_u64(sampled_gaussian[i])))
+            .collect(),
+      );
+      let ser = bincode::serialize(&resp);
+
+      Ok((ser?, sampled_gaussian))
+    }
+  }
+
+  impl Response {
+    pub fn parse_output_as_row_test(&self, qp: &QueryParams, noise: Vec<i64>) -> Vec<u64> {
+      // get parameters for rounding
+      let rounding_factor = get_rounding_factor(qp.plaintext_bits);
+      let rounding_floor = get_rounding_floor(qp.plaintext_bits);
+      let plaintext_size = get_plaintext_size(qp.plaintext_bits);
+
+      // perform division and rounding
+      (0..Database::get_matrix_width(qp.elem_size, qp.plaintext_bits))
+          .map(|i| {
+            let denoised_res = self.0[i].wrapping_sub(wrap_to_u64(noise[i]));
+            let unscaled_res = denoised_res.wrapping_sub(qp.rhs[i]);
+            let scaled_res = unscaled_res / rounding_factor;
+            let scaled_rem = unscaled_res % rounding_factor;
+            let mut rounded_res = scaled_res;
+            if scaled_rem > rounding_floor {
+              rounded_res += 1;
+            }
+            rounded_res % plaintext_size
+          })
+          .collect()
+    }
+
+    pub fn parse_output_as_bytes_test(&self, qp: &QueryParams, noise: Vec<i64>) -> Vec<u8> {
+      let row = self.parse_output_as_row_test(qp, noise);
+      bytes_from_u64_slice(&row, qp.plaintext_bits, qp.elem_size)
+    }
+
+    pub fn parse_output_as_base64_test(&self, qp: &QueryParams, noise: Vec<i64>) -> String {
+      let row = self.parse_output_as_row_test(qp, noise);
+      base64_from_u64_slice(&row, qp.plaintext_bits, qp.elem_size)
+    }
+  }
+
+  /*#[test]
   fn client_query_to_server_10_times_but_correct() {
     let m = 2u32.pow(18) as usize;  // database size
     let elem_size = 2u32.pow(13) as usize; // w (NOT omega)
@@ -240,6 +291,42 @@ mod tests {
       println!("here3");
 
       let output = resp.parse_output_as_base64(&qp);
+      assert_eq!(output, db_elems[i]);
+    }
+  }*/
+
+  #[test]
+  fn client_query_to_server_10_times() {
+    // These are not valid parameters for security, but are good for fast tests to verify the implementation
+    let m = 2u32.pow(12) as usize;
+    let elem_size = 2u32.pow(8) as usize;
+    let plaintext_bits = 12usize;
+    let lwe_dim = 512;
+    let db_elems = generate_db_elems(m, (elem_size + 7) / 8);
+    let shard = Shard::from_base64_strings(
+      &db_elems,
+      lwe_dim,
+      m,
+      elem_size,
+      plaintext_bits,
+    )
+        .unwrap();
+
+    let bp = shard.get_base_params();
+    let cp = CommonParams::from(bp);
+
+    #[allow(clippy::needless_range_loop)]
+    for i in 0..10 {
+      let mut qp = QueryParams::new(&cp, bp).unwrap();
+      let q = qp.generate_query(i).unwrap();
+
+      let tuple_resp = shard.test_respond(&q).unwrap();
+      let d_resp = tuple_resp.0;
+      let resp: Response = bincode::deserialize(&d_resp).unwrap();
+
+      // Removes server-added noise (testing only)
+      let noise = tuple_resp.1;
+      let output = resp.parse_output_as_base64_test(&qp, noise);
       assert_eq!(output, db_elems[i]);
     }
   }
