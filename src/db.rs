@@ -8,6 +8,7 @@ use serde_json::json;
 use crate::errors::ResultBoxedError;
 use crate::utils::format::*;
 use crate::utils::matrices::*;
+use crate::utils::{random_key, random_oracle};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Database {
@@ -240,8 +241,22 @@ fn construct_rows(
     println!("Creating matrix row {}", i);
     let mut row = Vec::with_capacity(row_width);
     let data = &elements[i];
-    let bytes = base64::decode(data)?;
-    let bits = bytes_to_bits_le(&bytes);
+    let data_bytes = base64::decode(data)?;
+
+    // TODO: Fix hard coding
+    let b_i = random_key((1 << 13) / 8);
+    let i_bytes = i.to_le_bytes();  // TODO: In reality this should be a log(m) bit representation which means we should probably be using bool vecs
+
+    let mut concat = Vec::new();
+    concat.extend_from_slice(&i_bytes);
+    concat.extend_from_slice(&b_i);
+
+    // Write result of xor into the variable holding the output of the F random oracle
+    let mut xored = random_oracle(concat.as_slice(), elem_size);
+    xored.iter_mut().zip(data_bytes.iter()).for_each(|(x1, y2)| *x1 ^= y2);
+
+
+    let bits = bytes_to_bits_le(&data_bytes);
     for i in 0..row_width {
       //println!("Creating matrix column {}", i);
       let end_bound = (i + 1) * plaintext_bits;

@@ -141,6 +141,7 @@ pub mod matrices {
   }
 }
 
+// TODO: Make this part of the matrices module (silly mistake)
 pub fn random_rounded_gaussian(mean: f64, std: f64) -> i64 {
   let mut seed = <ChaCha20Rng as SeedableRng>::Seed::default();
   OsRng.fill_bytes(&mut seed);
@@ -157,6 +158,24 @@ pub fn random_rounded_gaussian_vector(width: usize, mean: f64, std: f64) -> Vec<
     row.push(random_rounded_gaussian(mean, std));
   }
   row
+}
+
+// This is the F function oracle
+pub fn random_oracle(input: &[u8], length: usize) -> Vec<u8> {
+  use sha3::{Shake256, digest::{Update, ExtendableOutput, XofReader}};
+  let mut hasher = Shake256::default();
+  hasher.update(input);
+  let mut reader = hasher.finalize_xof();
+  let mut res1= vec![0u8; length]; // Length is in bytes
+  reader.read(&mut res1);
+  res1.to_vec()
+}
+
+/// Length should be specified in bytes. This is used for sampling b_i in the server setup of 5.1
+pub fn random_key<>(length: usize) -> Vec<u8> {
+  let mut key = vec![0u8; length];
+  OsRng.fill_bytes(&mut key);
+  key
 }
 
 

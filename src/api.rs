@@ -48,11 +48,8 @@ impl Shard {
     elem_size: usize,
     plaintext_bits: usize,
   ) -> ResultBoxedError<Self> {
-    println!("Before creating database");
     let db = Database::new(base64_strs, m, elem_size, plaintext_bits)?;
-    println!("After creating database");
     let base_params = BaseParams::new(&db, lwe_dim);
-    println!("After creating base params");
     Ok(Self { db, base_params })
   }
 
