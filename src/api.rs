@@ -195,11 +195,69 @@ impl Response {
 
 #[cfg(test)]
 mod tests {
+  use std::fs::File;
+  use std::io;
   use super::*;
   use rand_core::{OsRng, RngCore};
 
   #[test]
-  fn client_query_to_server_10_times() {
+  fn client_query_to_server_10_times_large() {
+    let m = 2u32.pow(18) as usize;  // database size
+    let elem_size = 2u32.pow(13) as usize; // w (NOT omega)
+    let plaintext_bits = 16usize; // log(p)
+    let lwe_dim = 3450; // n
+
+    // Load from cache if possible
+    let db_elems_tuple = match load_object("db_elems") {
+      Ok(db_elems) => (db_elems, true),
+      Err(_e) => (generate_db_elems(m, (elem_size + 7) / 8), false)
+    };
+
+    let db_elems = &db_elems_tuple.0;
+
+    let shard_tuple = match load_object("shard") {
+      Ok(shard) => (shard, true),
+      Err(_e) => if !db_elems_tuple.1 {
+        (Shard::from_base64_strings(
+          db_elems,
+          lwe_dim,
+          m,
+          elem_size,
+          plaintext_bits,
+        ).unwrap(), false)
+      }
+      else {
+        panic!("cache exists for db_elems but not for shard");
+    }
+  };
+
+    let shard = &shard_tuple.0;
+
+    // If not from cache, save to cache
+    if !shard_tuple.1 {
+      cache_object(db_elems, "db_elems").expect("db_elems cache failed");
+      cache_object(shard, "shard").expect("shard cache failed");
+    }
+
+    let bp = shard.get_base_params();
+    let cp = CommonParams::from(bp);
+
+    #[allow(clippy::needless_range_loop)]
+    for i in 0..10 {
+      let mut qp = QueryParams::new(&cp, bp).unwrap();
+      let q = qp.generate_query(i).unwrap();
+
+      let d_resp = shard.respond(&q).unwrap();
+      let resp: Response = bincode::deserialize(&d_resp).unwrap();
+
+      let output = resp.parse_output_as_base64(&qp);
+      assert_eq!(output, db_elems[i]);
+    }
+  }
+
+  #[test]
+  fn client_query_to_server_10_times_small() {
+    // These are not valid parameters for security, but are good for fast tests to verify the implementation
     let m = 2u32.pow(12) as usize;
     let elem_size = 2u32.pow(8) as usize;
     let plaintext_bits = 12usize;
@@ -211,8 +269,7 @@ mod tests {
       m,
       elem_size,
       plaintext_bits,
-    )
-    .unwrap();
+    ).unwrap();
 
     let bp = shard.get_base_params();
     let cp = CommonParams::from(bp);
@@ -243,8 +300,7 @@ mod tests {
       m,
       elem_size,
       plaintext_bits,
-    )
-    .unwrap();
+    ).unwrap();
     let bp = shard.get_base_params();
     let cp = CommonParams::from(bp);
 
@@ -272,5 +328,17 @@ mod tests {
       elems.push(elem_str);
     }
     elems
+  }
+
+  fn cache_object<T: Serialize>(object: &T, filename: &str) -> io::Result<()> {
+    let file = File::create(filename)?;
+    bincode::serialize_into(file, object).expect("Could not serialize");
+    Ok(())
+  }
+
+  fn load_object<T: for<'de> Deserialize<'de>>(filename: &str) -> io::Result<T> {
+    let file = File::open(filename)?;
+    let data = bincode::deserialize_from(file).expect("Could not deserialize");
+    Ok(data)
   }
 }
