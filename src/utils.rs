@@ -65,7 +65,6 @@ pub mod matrices {
     let mut a = Vec::with_capacity(width);
     let mut rng = get_seeded_rng(seed);
     for i in 0..width {
-      println!("Treating {} of {}", i, width);
       let mut v = Vec::with_capacity(lwe_dim);
       for _ in 0..lwe_dim {
         v.push(rng.next_u64());
