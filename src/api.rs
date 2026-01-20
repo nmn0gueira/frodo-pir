@@ -215,6 +215,10 @@ mod tests {
 
     let db_elems = &db_elems_tuple.0;
 
+    if !db_elems_tuple.1 {
+      cache_object(db_elems, "db_elems").expect("db_elems cache failed");
+    }
+
     let shard_tuple = match load_object("shard") {
       Ok(shard) => (shard, true),
       Err(_e) => if !db_elems_tuple.1 {
@@ -235,12 +239,26 @@ mod tests {
 
     // If not from cache, save to cache
     if !shard_tuple.1 {
-      cache_object(db_elems, "db_elems").expect("db_elems cache failed");
       cache_object(shard, "shard").expect("shard cache failed");
     }
 
     let bp = shard.get_base_params();
-    let cp = CommonParams::from(bp);
+
+    let cp_tuple = match load_object("cp") {
+      Ok(cp) => (cp, true),
+      Err(_e) => if !shard_tuple.1 {
+        (CommonParams::from(bp), false)
+      }
+      else {
+        panic!("cache exists for shard but not cp");
+      }
+    };
+
+    let cp = &cp_tuple.0;
+
+    if !cp_tuple.1 {
+      cache_object(cp, "cp").expect("cp cache failed");
+    }
 
     #[allow(clippy::needless_range_loop)]
     for i in 0..10 {
