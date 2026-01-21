@@ -161,9 +161,9 @@ pub mod format {
     let mut bytes = vec![0u8; (bits.len() + 7) / 8];
     for (i, &bit) in bits.iter().enumerate() {
       if bit {
-        let idx = ((i as f64) / 8f64).floor() as usize;
-        let exp = (i % 8) as u32;
-        bytes[idx] += 2u8.pow(exp);
+        let byte_idx = i / 8;
+        let bit_pos = i % 8;
+        bytes[byte_idx] |= 1 << bit_pos;
       }
     }
     bytes
@@ -189,7 +189,7 @@ pub mod format {
     let byte_len = bytes.len();
     if byte_len > u64_len {
       return Err(ErrorUnexpectedInputSize::new(format!(
-        "bytes are too long to parse as u16, length: {}",
+        "bytes are too long to parse as u64, length: {}",
         byte_len
       )));
     }
