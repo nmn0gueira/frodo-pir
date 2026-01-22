@@ -221,16 +221,14 @@ pub mod format {
     total_bit_len: usize,
   ) -> Vec<u8> {
     let remainder = total_bit_len % entry_bit_len;
+    let last_len = if remainder == 0 {entry_bit_len} else { remainder };
     let mut bits = Vec::with_capacity(entry_bit_len * v.len());
-    for i in 0..v.len() {
-      // We extract either the full amount of bits, or the remainder from
-      // the last index
-      if i != v.len() - 1 {
-        bits.extend(u64_to_bits_le(v[i], entry_bit_len));
-      } else {
-        bits.extend(u64_to_bits_le(v[i], remainder));
-      }
+    for &val in  &v[..v.len() - 1] {
+      bits.extend(u64_to_bits_le(val, entry_bit_len));
     }
+    // The last index may require extracting the remainder or the full amount of bits
+    bits.extend(u64_to_bits_le(v[v.len() - 1], last_len));
+
     bits_to_bytes_le(&bits)
   }
 
