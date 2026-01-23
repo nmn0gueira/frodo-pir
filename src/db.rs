@@ -8,7 +8,6 @@ use serde_json::json;
 use crate::errors::ResultBoxedError;
 use crate::utils::format::*;
 use crate::utils::matrices::*;
-use crate::utils::{random_key, random_oracle};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Database {
@@ -126,17 +125,20 @@ pub struct BaseParams {
   plaintext_bits: usize,
   s: usize,
 
+  std: usize,
+
   public_seed: [u8; 32],
   rhs: Vec<Vec<u64>>,
 }
 
 impl BaseParams {
-  pub fn new(db: &Database, dim: usize) -> Self {
+  pub fn new(db: &Database, dim: usize, std: usize) -> Self {
     let public_seed = generate_seed(); // generates the public seed
     Self {
       public_seed,
       rhs: Self::generate_params_rhs(db, public_seed, dim, db.m),
       dim,
+      std,
       m: db.m,
       elem_size: db.elem_size,
       plaintext_bits: db.plaintext_bits,
@@ -207,6 +209,10 @@ impl BaseParams {
   pub fn get_s(&self) -> usize {
     self.s
   }
+
+  pub fn get_std(&self) -> usize {
+    self.std
+  }
 }
 
 /// `CommonParams` holds the derived uniform matrix that is used for
@@ -258,7 +264,7 @@ fn construct_rows(
 
     let mut b_i = random_key((s + 7) / 8);
 
-    let i_bytes = i.to_le_bytes();  // Text says this should be a log(m) bit representation. Should we be using bool vecs here?
+    let i_bytes = i.to_le_bytes();  // Text says this should be a log(m) bit representation. Should we be using bool vectors here?
 
     let mut concat = Vec::new();
     concat.extend_from_slice(&i_bytes);

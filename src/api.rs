@@ -10,7 +10,6 @@ use crate::utils::matrices::*;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::str;
-use crate::utils::{random_oracle, random_rounded_gaussian_vector};
 
 /// A `Shard` is an instance of a database, where each row corresponds
 /// to a single element, that has been preprocessed by the server.
@@ -20,7 +19,6 @@ pub struct Shard {
   base_params: BaseParams,
 }
 
-// TODO: Add standard deviation parameter when creating a shard object
 impl Shard {
   /// Expects a JSON file of base64-encoded strings in file path. It also
   /// expects the lwe dimension, m (the number of DB elements), element size
@@ -32,12 +30,13 @@ impl Shard {
     m: usize,
     elem_size: usize,
     plaintext_bits: usize,
-    s: usize
+    s: usize,
+    std: usize
   ) -> ResultBoxedError<Self> {
     let file_contents: String =
-      fs::read_to_string(file_path).unwrap().parse().unwrap();
-    let elements: Vec<String> = serde_json::from_str(&file_contents).unwrap();
-    Shard::from_base64_strings(&elements, lwe_dim, m, elem_size, plaintext_bits, s)
+      fs::read_to_string(file_path)?.parse()?;
+    let elements: Vec<String> = serde_json::from_str(&file_contents)?;
+    Shard::from_base64_strings(&elements, lwe_dim, m, elem_size, plaintext_bits, s, std)
   }
 
   /// Expects an array of base64-encoded strings and converts into a
@@ -48,10 +47,11 @@ impl Shard {
     m: usize,
     elem_size: usize,
     plaintext_bits: usize,
-    s: usize
+    s: usize,
+    std: usize
   ) -> ResultBoxedError<Self> {
     let db = Database::new(base64_strs, m, elem_size, plaintext_bits, s)?;
-    let base_params = BaseParams::new(&db, lwe_dim);
+    let base_params = BaseParams::new(&db, lwe_dim, std);
     Ok(Self { db, base_params })
   }
 
@@ -69,9 +69,7 @@ impl Shard {
   // Produces a serialized response (base64-encoded) to a serialized
   // client query: c' = b' * DB
   pub fn respond(&self, q: &Query) -> ResultBoxedError<Vec<u8>> {
-    // TODO: RESOLVE HARD-CODING
-    // get matrix width self returns omega
-    let sampled_gaussian = random_rounded_gaussian_vector(self.db.get_matrix_width_self(), 0.0, (1u64 << 43) as f64);
+    let sampled_gaussian = random_rounded_gaussian_vector(self.db.get_matrix_width_self(), 0.0, self.base_params.get_std() as f64);
     let q = q.as_slice();
     let resp = Response(
       (0..self.db.get_matrix_width_self())
@@ -93,7 +91,7 @@ impl Shard {
     &self.base_params
   }
 
-  pub fn into_row_iter(&self) -> std::vec::IntoIter<std::string::String> {
+  pub fn row_iter(&self) -> std::vec::IntoIter<String> {
     (0..self.get_db().get_matrix_height())
       .map(|i| self.get_db().get_db_entry(i))
       .collect::<Vec<String>>()
@@ -198,16 +196,6 @@ impl Response {
     let mut xored = random_oracle(concat.as_slice(), (qp.elem_size + 7) / 8);
     xored.iter_mut().zip(bits_to_bytes_le(&x_bits[qp.s..]).iter()).for_each(|(x1, y2)| *x1 ^= y2);
     xored
-
-    /*
-    // This is probably wrong (particularly how I am slicing the x vector). Less memory efficient, but correct way above
-    let mut concat = Vec::with_capacity(qp.elem_size);
-    concat.extend_from_slice(&row_index.to_le_bytes());
-    concat.extend_from_slice(&bytes_from_u64_slice(&x[..qp.s], qp.plaintext_bits, qp.s)); // Total bit len in here is s I think
-
-    let mut xored = random_oracle(concat.as_slice(), (qp.elem_size + 7) / 8);
-    xored.iter_mut().zip(bytes_from_u64_slice(&x[qp.s..], qp.plaintext_bits, qp.elem_size).iter()).for_each(|(x1, y2)| *x1 ^= y2);
-    xored*/
   }
 
   /// Parses the output as a base64-encoded string
@@ -283,65 +271,51 @@ mod tests {
 
   #[test]
   fn client_query_to_server_10_times_large() {
-    let m = 2u32.pow(18) as usize;  // database size
-    let elem_size = 2u32.pow(13) as usize; // w (NOT omega)
-    let plaintext_bits = 16usize; // log(p)
-    let lwe_dim = 3450; // n
-    let s = 2u32.pow(13) as usize;
+    let m = 2u32.pow(12) as usize;
+    let elem_size = 2u32.pow(8) as usize;
+    let plaintext_bits = 12usize;
+    let lwe_dim = 512;
+    let s = 2u32.pow(8) as usize;
+    let std = (1u64 << 43) as usize;
 
     // Load from cache if possible
-    let db_elems_tuple = match load_object("db_elems") {
-      Ok(db_elems) => (db_elems, true),
-      Err(_e) => (generate_db_elems(m, (elem_size + 7) / 8), false)
+    let db_elems = match load_object("db_elems") {
+      Ok(db_elems) => db_elems,
+      Err(_e) =>  {
+        let db_elems = generate_db_elems(m, (elem_size + 7) / 8);
+        cache_object(&db_elems, "db_elems").expect("db_elems cache failed");
+        db_elems
+      }
     };
 
-    let db_elems = &db_elems_tuple.0;
-
-    if !db_elems_tuple.1 {
-      cache_object(db_elems, "db_elems").expect("db_elems cache failed");
-    }
-
-    let shard_tuple = match load_object("shard") {
-      Ok(shard) => (shard, true),
-      Err(_e) => if !db_elems_tuple.1 {
-        (Shard::from_base64_strings(
-          db_elems,
+    let shard = match load_object("shard") {
+      Ok(shard) => shard,
+      Err(_e) => {
+        let shard = Shard::from_base64_strings(
+          &db_elems,
           lwe_dim,
           m,
           elem_size,
           plaintext_bits,
-          s
-        ).unwrap(), false)
+          s,
+          std
+        ).unwrap();
+        cache_object(&shard, "shard").expect("shard cache failed");
+        shard
       }
-      else {
-        panic!("cache exists for db_elems but not for shard");
-    }
   };
-
-    let shard = &shard_tuple.0;
-
-    // If not from cache, save to cache
-    if !shard_tuple.1 {
-      cache_object(shard, "shard").expect("shard cache failed");
-    }
 
     let bp = shard.get_base_params();
 
-    let cp_tuple = match load_object("cp") {
-      Ok(cp) => (cp, true),
-      Err(_e) => if !shard_tuple.1 {
-        (CommonParams::from(bp), false)
-      }
-      else {
-        panic!("cache exists for shard but not cp");
+    let cp = match load_object("cp") {
+      Ok(cp) => cp,
+      Err(_e) => {
+        let cp = CommonParams::from(bp);
+        cache_object(&cp, "cp").expect("cp cache failed");
+        cp
+
       }
     };
-
-    let cp = &cp_tuple.0;
-
-    if !cp_tuple.1 {
-      cache_object(cp, "cp").expect("cp cache failed");
-    }
 
     #[allow(clippy::needless_range_loop)]
     for i in 0..10 {
@@ -367,6 +341,8 @@ mod tests {
     let plaintext_bits = 12usize;
     let lwe_dim = 512;
     let s = 2u32.pow(8) as usize;
+    let std = (1u64 << 24) as usize;
+
     let db_elems = generate_db_elems(m, (elem_size + 7) / 8);
     let shard = Shard::from_base64_strings(
       &db_elems,
@@ -374,7 +350,8 @@ mod tests {
       m,
       elem_size,
       plaintext_bits,
-      s
+      s,
+      std
     ).unwrap();
 
     let bp = shard.get_base_params();
@@ -404,13 +381,16 @@ mod tests {
     let lwe_dim = 512;
     let db_elems = generate_db_elems(m, (elem_size + 7) / 8);
     let s = 2u32.pow(8) as usize;
+    let std = (1u64 << 43) as usize;
+
     let shard = Shard::from_base64_strings(
       &db_elems,
       lwe_dim,
       m,
       elem_size,
       plaintext_bits,
-      s
+      s,
+      std
     ).unwrap();
     let bp = shard.get_base_params();
     let cp = CommonParams::from(bp);
@@ -420,7 +400,7 @@ mod tests {
     // should be successful in generating a query
     let res_unused = qp.generate_query(0);
     assert!(res_unused.is_ok());
-
+    
     // should be "used"
     assert!(qp.used);
 

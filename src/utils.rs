@@ -1,11 +1,6 @@
 //! Utility modules for working with matrices and LWE conventions in the
 //! PIR scheme of lwe-pir.
 
-use rand_chacha::rand_core::SeedableRng;
-use rand_chacha::ChaCha20Rng;
-use rand_core::{OsRng, RngCore};
-use rand_distr::{Distribution, Normal};
-
 /// Functionality specific to the LWE setup that is used
 pub mod lwe {
   const MODULUS: u128 = 1u128 << 64;  // 2^64
@@ -31,8 +26,9 @@ pub mod lwe {
 /// Functionality for matrix and vector manipulation
 pub mod matrices {
   use rand::rngs::StdRng;
+  use rand_chacha::ChaCha20Rng;
   use rand_core::{OsRng, RngCore, SeedableRng};
-
+  use rand_distr::{Distribution, Normal};
   use crate::errors::ErrorUnexpectedInputSize;
   use crate::errors::ResultBoxedError;
 
@@ -51,8 +47,8 @@ pub mod matrices {
 
   /// Takes a matrix and returns the [*][i] elements
   /// equivalent to `swap_matrix_fmt(xys)[i]`, but much faster
-  pub fn get_matrix_second_at(matrix: &[Vec<u64>], secidx: usize) -> Vec<u64> {
-    matrix.iter().map(|y| y[secidx]).collect()
+  pub fn get_matrix_second_at(matrix: &[Vec<u64>], sec_idx: usize) -> Vec<u64> {
+    matrix.iter().map(|y| y[sec_idx]).collect()
   }
 
   /// Generates an LWE matrix from a public seed
@@ -64,7 +60,7 @@ pub mod matrices {
   ) -> Vec<Vec<u64>> {
     let mut a = Vec::with_capacity(width);
     let mut rng = get_seeded_rng(seed);
-    for i in 0..width {
+    for _ in 0..width {
       let mut v = Vec::with_capacity(lwe_dim);
       for _ in 0..lwe_dim {
         v.push(rng.next_u64());
@@ -138,45 +134,43 @@ pub mod matrices {
     }
     row
   }
-}
 
-// TODO: Make this part of the matrices module (silly mistake)
-pub fn random_rounded_gaussian(mean: f64, std: f64) -> i64 {
-  let mut seed = <ChaCha20Rng as SeedableRng>::Seed::default();
-  OsRng.fill_bytes(&mut seed);
-  let mut csprng = ChaCha20Rng::from_seed(seed);
+  pub fn random_rounded_gaussian(mean: f64, std: f64) -> i64 {
+    let mut seed = <ChaCha20Rng as rand_chacha::rand_core::SeedableRng>::Seed::default();
+    OsRng.fill_bytes(&mut seed);
+    let mut cs_prng = <ChaCha20Rng as rand_chacha::rand_core::SeedableRng>::from_seed(seed);
 
-  let normal = Normal::new(mean, std).unwrap();
-  normal.sample(&mut csprng).round() as i64
+    let normal = Normal::new(mean, std).unwrap();
+    normal.sample(&mut cs_prng).round() as i64
 
-}
-
-pub fn random_rounded_gaussian_vector(width: usize, mean: f64, std: f64) -> Vec<i64> {
-  let mut row = Vec::new();
-  for _ in 0..width {
-    row.push(random_rounded_gaussian(mean, std));
   }
-  row
-}
 
-// This is the F function oracle
-pub fn random_oracle(input: &[u8], length: usize) -> Vec<u8> {
-  use sha3::{Shake256, digest::{Update, ExtendableOutput, XofReader}};
-  let mut hasher = Shake256::default();
-  hasher.update(input);
-  let mut reader = hasher.finalize_xof();
-  let mut res1= vec![0u8; length]; // Length is in bytes
-  reader.read(&mut res1);
-  res1.to_vec()
-}
+  pub fn random_rounded_gaussian_vector(width: usize, mean: f64, std: f64) -> Vec<i64> {
+    let mut row = Vec::new();
+    for _ in 0..width {
+      row.push(random_rounded_gaussian(mean, std));
+    }
+    row
+  }
 
-/// Length should be specified in bytes. This is used for sampling b_i in the server setup of 5.1
-pub fn random_key<>(length: usize) -> Vec<u8> {
-  let mut key = vec![0u8; length];
-  OsRng.fill_bytes(&mut key);
-  key
-}
+  // This is the F function oracle
+  pub fn random_oracle(input: &[u8], length: usize) -> Vec<u8> {
+    use sha3::{Shake256, digest::{Update, ExtendableOutput, XofReader}};
+    let mut hasher = Shake256::default();
+    hasher.update(input);
+    let mut reader = hasher.finalize_xof();
+    let mut res1= vec![0u8; length]; // Length is in bytes
+    reader.read(&mut res1);
+    res1.to_vec()
+  }
 
+  /// Length should be specified in bytes. This is used for sampling b_i in the server setup of 5.1
+  pub fn random_key<>(length: usize) -> Vec<u8> {
+    let mut key = vec![0u8; length];
+    OsRng.fill_bytes(&mut key);
+    key
+  }
+}
 
 
 /// Functionality related to manipulation of data formats that are used
@@ -229,7 +223,7 @@ pub mod format {
     bits: &[bool],
   ) -> Result<u64, ErrorUnexpectedInputSize> {
     let mut bytes = bits_to_bytes_le(bits);
-    let u64_len = std::mem::size_of::<u64>();
+    let u64_len = size_of::<u64>();
     let byte_len = bytes.len();
     if byte_len > u64_len {
       return Err(ErrorUnexpectedInputSize::new(format!(
