@@ -280,45 +280,14 @@ mod tests {
     }
   }
 
-  /*#[test]
-  fn client_query_to_server_10_times_but_correct() {
-    let m = 2u32.pow(18) as usize;  // database size
-    let elem_size = 2u32.pow(13) as usize; // w (NOT omega)
-    let plaintext_bits = 16usize; // log(p)
-    let lwe_dim = 3450; // n
-    let db_elems = generate_db_elems(m, (elem_size + 7) / 8);
-    let shard = Shard::from_base64_strings(
-      &db_elems,
-      lwe_dim,
-      m,
-      elem_size,
-      plaintext_bits,
-    ).unwrap();
-
-    let bp = shard.get_base_params();
-    let cp = CommonParams::from(bp);
-
-    #[allow(clippy::needless_range_loop)]
-    for i in 0..10 {
-      let mut qp = QueryParams::new(&cp, bp).unwrap();
-      let q = qp.generate_query(i).unwrap();
-
-      let d_resp = shard.respond(&q).unwrap();
-      let resp: Response = bincode::deserialize(&d_resp).unwrap();
-
-      let output = resp.parse_output_as_base64(&qp);
-      assert_eq!(output, db_elems[i]);
-    }
-  }*/
 
   #[test]
-  fn client_query_to_server_10_times() {
-    // These are not valid parameters for security, but are good for fast tests to verify the implementation
   fn client_query_to_server_10_times_large() {
     let m = 2u32.pow(18) as usize;  // database size
     let elem_size = 2u32.pow(13) as usize; // w (NOT omega)
     let plaintext_bits = 16usize; // log(p)
     let lwe_dim = 3450; // n
+    let s = 2u32.pow(13) as usize;
 
     // Load from cache if possible
     let db_elems_tuple = match load_object("db_elems") {
@@ -341,6 +310,7 @@ mod tests {
           m,
           elem_size,
           plaintext_bits,
+          s
         ).unwrap(), false)
       }
       else {
@@ -378,10 +348,13 @@ mod tests {
       let mut qp = QueryParams::new(&cp, bp).unwrap();
       let q = qp.generate_query(i).unwrap();
 
-      let d_resp = shard.respond(&q).unwrap();
+      let tuple_resp = shard.test_respond(&q).unwrap();
+      let d_resp = tuple_resp.0;
       let resp: Response = bincode::deserialize(&d_resp).unwrap();
 
-      let output = resp.parse_output_as_base64(&qp);
+      // Removes server-added noise (testing only)
+      let noise = tuple_resp.1;
+      let output = resp.parse_output_as_base64_test(&qp, noise, i);
       assert_eq!(output, db_elems[i]);
     }
   }
