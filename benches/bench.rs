@@ -12,6 +12,8 @@ fn criterion_benchmark(c: &mut Criterion) {
     lwe_dim,
     elem_size,
     plaintext_bits,
+    s,
+    std,
     ..
   } = parse_from_env();
   let mut lwe_group = c.benchmark_group("lwe");
@@ -25,8 +27,9 @@ fn criterion_benchmark(c: &mut Criterion) {
     matrix_height,
     elem_size,
     plaintext_bits,
-  )
-  .unwrap();
+    s,
+    std
+  ).unwrap();
   println!("Setup complete, starting benchmarks");
   if BENCH_ONLINE {
     _bench_client_query(&mut lwe_group, &shard);
@@ -65,8 +68,9 @@ fn _bench_db_generation(
   println!("Starting DB generation benchmarks");
   c.bench_function(
     format!(
-      "generate db and params, m: {}, w: {}",
+      "generate db and params, m: {}, s: {}, w: {}",
       db.get_matrix_height(),
+      db.get_s(),
       w
     ),
     |b| {
@@ -77,8 +81,9 @@ fn _bench_db_generation(
           db.get_matrix_height(),
           db.get_elem_size(),
           db.get_plaintext_bits(),
-        )
-        .unwrap();
+          db.get_s(),
+          bp.get_std()
+        ).unwrap();
       });
     },
   );
@@ -98,7 +103,7 @@ fn _bench_client_query(
   println!("Starting client query benchmarks");
   let mut _qp = QueryParams::new(&cp, bp).unwrap();
   let _q = _qp.generate_query(idx).unwrap();
-  let mut _resp = shard.respond(&_q).unwrap();
+  let _resp = shard.respond(&_q).unwrap();
   c.bench_function(
     format!(
       "create client query params, lwe_dim: {}, m: {}, w: {}",
@@ -128,10 +133,11 @@ fn _bench_client_query(
 
   c.bench_function(
     format!(
-      "server response compute, lwe_dim: {}, m: {}, w: {}",
+      "server response compute, lwe_dim: {}, m: {}, w: {}, std: {}",
       bp.get_dim(),
       db.get_matrix_height(),
-      w
+      w,
+      bp.get_std()
     ),
     |b| {
       b.iter(|| {
@@ -142,15 +148,16 @@ fn _bench_client_query(
 
   c.bench_function(
     format!(
-      "client parse server response, lwe_dim: {}, m: {}, w: {}",
+      "client parse server response, lwe_dim: {}, m: {}, w: {}, std: {}",
       bp.get_dim(),
       db.get_matrix_height(),
-      w
+      w,
+      bp.get_std()
     ),
     |b| {
       b.iter(|| {
         let deser: Response = bincode::deserialize(&_resp).unwrap();
-        deser.parse_output_as_base64(&_qp);
+        deser.parse_output_as_base64(&_qp, idx);
       });
     },
   );
