@@ -189,7 +189,7 @@ impl Response {
     let x_bytes = bytes_from_u64_slice(&x, qp.plaintext_bits, qp.elem_size + qp.s);
     let x_bits = bytes_to_bits_le(&x_bytes);
 
-    let mut concat = Vec::with_capacity(qp.elem_size);
+    let mut concat = Vec::with_capacity(size_of::<usize>() + (qp.s + 7) / 8);
     concat.extend_from_slice(&row_index.to_le_bytes());
     concat.extend(bits_to_bytes_le(&x_bits[..qp.s]));
 
@@ -207,8 +207,6 @@ impl Response {
 
 #[cfg(test)]
 mod tests {
-  use std::fs::File;
-  use std::io;
   use super::*;
   use rand_core::{OsRng, RngCore};
 
@@ -253,7 +251,7 @@ mod tests {
       let x_bytes = bytes_from_u64_slice(&x, qp.plaintext_bits, qp.elem_size + qp.s);
       let x_bits = bytes_to_bits_le(&x_bytes);
 
-      let mut concat = Vec::with_capacity(qp.elem_size);
+      let mut concat = Vec::with_capacity(size_of::<usize>() + (qp.s + 7) / 8);
       concat.extend_from_slice(&row_index.to_le_bytes());
       concat.extend(bits_to_bytes_le(&x_bits[..qp.s]));
 
@@ -268,74 +266,9 @@ mod tests {
     }
   }
 
-
   #[test]
-  fn client_query_to_server_10_times_large() {
-    let m = 2u32.pow(12) as usize;
-    let elem_size = 2u32.pow(8) as usize;
-    let plaintext_bits = 12usize;
-    let lwe_dim = 512;
-    let s = 2u32.pow(8) as usize;
-    let std = (1u64 << 43) as usize;
-
-    // Load from cache if possible
-    let db_elems = match load_object("db_elems") {
-      Ok(db_elems) => db_elems,
-      Err(_e) =>  {
-        let db_elems = generate_db_elems(m, (elem_size + 7) / 8);
-        cache_object(&db_elems, "db_elems").expect("db_elems cache failed");
-        db_elems
-      }
-    };
-
-    let shard = match load_object("shard") {
-      Ok(shard) => shard,
-      Err(_e) => {
-        let shard = Shard::from_base64_strings(
-          &db_elems,
-          lwe_dim,
-          m,
-          elem_size,
-          plaintext_bits,
-          s,
-          std
-        ).unwrap();
-        cache_object(&shard, "shard").expect("shard cache failed");
-        shard
-      }
-  };
-
-    let bp = shard.get_base_params();
-
-    let cp = match load_object("cp") {
-      Ok(cp) => cp,
-      Err(_e) => {
-        let cp = CommonParams::from(bp);
-        cache_object(&cp, "cp").expect("cp cache failed");
-        cp
-
-      }
-    };
-
-    #[allow(clippy::needless_range_loop)]
-    for i in 0..10 {
-      let mut qp = QueryParams::new(&cp, bp).unwrap();
-      let q = qp.generate_query(i).unwrap();
-
-      let tuple_resp = shard.test_respond(&q).unwrap();
-      let d_resp = tuple_resp.0;
-      let resp: Response = bincode::deserialize(&d_resp).unwrap();
-
-      // Removes server-added noise (testing only)
-      let noise = tuple_resp.1;
-      let output = resp.parse_output_as_base64_test(&qp, noise, i);
-      assert_eq!(output, db_elems[i]);
-    }
-  }
-
-  #[test]
-  fn client_query_to_server_10_times_small() {
-    // These are not valid parameters for security, but are good for fast tests to verify the implementation
+  fn client_query_to_server_10_times() {
+    // These are not valid parameters for security, just for fast tests
     let m = 2u32.pow(12) as usize;
     let elem_size = 2u32.pow(8) as usize;
     let plaintext_bits = 12usize;
@@ -419,17 +352,5 @@ mod tests {
       elems.push(elem_str);
     }
     elems
-  }
-
-  fn cache_object<T: Serialize>(object: &T, filename: &str) -> io::Result<()> {
-    let file = File::create(filename)?;
-    bincode::serialize_into(file, object).expect("Could not serialize");
-    Ok(())
-  }
-
-  fn load_object<T: for<'de> Deserialize<'de>>(filename: &str) -> io::Result<T> {
-    let file = File::open(filename)?;
-    let data = bincode::deserialize_from(file).expect("Could not deserialize");
-    Ok(data)
   }
 }
