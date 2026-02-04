@@ -17,9 +17,6 @@ pub struct CLIFlags {
   /// Log2 of element bit length
   #[arg(short, long, default_value_t = 13, value_parser = parse_exp_to_usize)]
   pub elem_size: usize,
-  /// Log2 length of b vector (s)
-  #[arg(short, long, default_value_t = 13, value_parser = parse_exp_to_usize)]
-  pub s: usize,
   /// Log2 of standard deviation value used for (rounded) gaussian distribution
   #[arg(short, long, default_value_t = 13, value_parser = parse_exp_to_usize)]
   pub std: usize
@@ -37,14 +34,12 @@ pub fn parse_from_env() -> CLIFlags {
     env::var("PIR_PLAINTEXT_BITS").unwrap().parse().unwrap();
   let matrix_height =
     parse_exp_to_usize(&env::var("PIR_MATRIX_HEIGHT_EXP").unwrap()).unwrap();
-  let s : usize = parse_exp_to_usize(&env::var("PIR_SECRET_LENGTH_EXP").unwrap()).unwrap();
   let std : usize = parse_exp_to_usize(&env::var("PIR_GAUSSIAN_STD_EXP").unwrap()).unwrap();
   CLIFlags {
     matrix_height,
     lwe_dim,
     plaintext_bits,
     elem_size,
-    s,
     std
   }
 }

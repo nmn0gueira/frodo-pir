@@ -12,7 +12,6 @@ fn criterion_benchmark(c: &mut Criterion) {
     lwe_dim,
     elem_size,
     plaintext_bits,
-    s,
     std,
     ..
   } = parse_from_env();
@@ -27,7 +26,6 @@ fn criterion_benchmark(c: &mut Criterion) {
     matrix_height,
     elem_size,
     plaintext_bits,
-    s,
     std
   ).unwrap();
   println!("Setup complete, starting benchmarks");
@@ -68,9 +66,8 @@ fn _bench_db_generation(
   println!("Starting DB generation benchmarks");
   c.bench_function(
     format!(
-      "generate db and params, m: {}, s: {}, w: {}",
+      "generate db and params, m: {}, w: {}",
       db.get_matrix_height(),
-      db.get_s(),
       w
     ),
     |b| {
@@ -81,7 +78,6 @@ fn _bench_db_generation(
           db.get_matrix_height(),
           db.get_elem_size(),
           db.get_plaintext_bits(),
-          db.get_s(),
           bp.get_std()
         ).unwrap();
       });
@@ -157,7 +153,7 @@ fn _bench_client_query(
     |b| {
       b.iter(|| {
         let deser: Response = bincode::deserialize(&_resp).unwrap();
-        deser.parse_output_as_base64(&_qp, idx);
+        deser.parse_output_as_base64(&_qp);
       });
     },
   );

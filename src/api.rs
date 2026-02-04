@@ -30,13 +30,12 @@ impl Shard {
     m: usize,
     elem_size: usize,
     plaintext_bits: usize,
-    s: usize,
     std: usize
   ) -> ResultBoxedError<Self> {
     let file_contents: String =
       fs::read_to_string(file_path)?.parse()?;
     let elements: Vec<String> = serde_json::from_str(&file_contents)?;
-    Shard::from_base64_strings(&elements, lwe_dim, m, elem_size, plaintext_bits, s, std)
+    Shard::from_base64_strings(&elements, lwe_dim, m, elem_size, plaintext_bits, std)
   }
 
   /// Expects an array of base64-encoded strings and converts into a
@@ -47,10 +46,9 @@ impl Shard {
     m: usize,
     elem_size: usize,
     plaintext_bits: usize,
-    s: usize,
     std: usize
   ) -> ResultBoxedError<Self> {
-    let db = Database::new(base64_strs, m, elem_size, plaintext_bits, s)?;
+    let db = Database::new(base64_strs, m, elem_size, plaintext_bits)?;
     let base_params = BaseParams::new(&db, lwe_dim, std);
     Ok(Self { db, base_params })
   }
@@ -107,7 +105,6 @@ pub struct QueryParams {
   rhs: Vec<u64>,
   elem_size: usize,
   plaintext_bits: usize,
-  s: usize,
   pub used: bool,
 }
 
@@ -119,7 +116,6 @@ impl QueryParams {
       rhs: bp.mult_right(&s)?, // The `c` value
       elem_size: bp.get_elem_size(),
       plaintext_bits: bp.get_plaintext_bits(),
-      s: bp.get_s(),
       used: false,
     })
   }
@@ -165,43 +161,37 @@ impl Response {
     &self.0
   }
 
-  /// Parses the output as a row of u64 values
-  pub fn parse_output_as_bytes(&self, qp: &QueryParams, row_index: usize) -> Vec<u8> {
+  pub fn parse_output_as_row(&self, qp: &QueryParams) -> Vec<u64> {
     // get parameters for rounding
     let rounding_factor = get_rounding_factor(qp.plaintext_bits);
     let rounding_floor = get_rounding_floor(qp.plaintext_bits);
     let plaintext_size = get_plaintext_size(qp.plaintext_bits);
 
     // perform division and rounding
-    let x: Vec<u64> = (0..Database::get_matrix_width(qp.elem_size, qp.plaintext_bits, qp.s))
-      .map(|i| {
-        let unscaled_res = self.0[i].wrapping_sub(qp.rhs[i]);
-        let scaled_res = unscaled_res / rounding_factor;
-        let scaled_rem = unscaled_res % rounding_factor;
-        let mut rounded_res = scaled_res;
-        if scaled_rem > rounding_floor {
-          rounded_res += 1;
-        }
-        rounded_res % plaintext_size
-      })
-      .collect();
+    (0..Database::get_matrix_width(qp.elem_size, qp.plaintext_bits))
+        .map(|i| {
+          let unscaled_res = self.0[i].wrapping_sub(qp.rhs[i]);
+          let scaled_res = unscaled_res / rounding_factor;
+          let scaled_rem = unscaled_res % rounding_factor;
+          let mut rounded_res = scaled_res;
+          if scaled_rem > rounding_floor {
+            rounded_res += 1;
+          }
+          rounded_res % plaintext_size
+        })
+        .collect()
+  }
 
-    let x_bytes = bytes_from_u64_slice(&x, qp.plaintext_bits, qp.elem_size + qp.s);
-    let x_bits = bytes_to_bits_le(&x_bytes);
-
-    let mut concat = Vec::with_capacity(size_of::<usize>() + (qp.s + 7) / 8);
-    concat.extend_from_slice(&row_index.to_le_bytes());
-    concat.extend(bits_to_bytes_le(&x_bits[..qp.s]));
-
-    let mut xored = random_oracle(concat.as_slice(), (qp.elem_size + 7) / 8);
-    xored.iter_mut().zip(bits_to_bytes_le(&x_bits[qp.s..]).iter()).for_each(|(x1, y2)| *x1 ^= y2);
-    xored
+  /// Parses the output as bytes
+  pub fn parse_output_as_bytes(&self, qp: &QueryParams) -> Vec<u8> {
+    let row = self.parse_output_as_row(qp);
+    bytes_from_u64_slice(&row, qp.plaintext_bits, qp.elem_size)
   }
 
   /// Parses the output as a base64-encoded string
-  pub fn parse_output_as_base64(&self, qp: &QueryParams, row_index: usize) -> String {
-    let bytes = self.parse_output_as_bytes(qp, row_index);
-    base64::encode(bytes)
+  pub fn parse_output_as_base64(&self, qp: &QueryParams) -> String {
+    let row = self.parse_output_as_row(qp);
+    base64_from_u64_slice(&row, qp.plaintext_bits, qp.elem_size)
   }
 }
 
@@ -227,14 +217,14 @@ mod tests {
   }
 
   impl Response {
-    pub fn parse_output_as_bytes_test(&self, qp: &QueryParams, noise: Vec<i64>, row_index: usize) -> Vec<u8> {
+    pub fn parse_output_as_row_test(&self, qp: &QueryParams, noise: Vec<i64>) -> Vec<u64> {
       // get parameters for rounding
       let rounding_factor = get_rounding_factor(qp.plaintext_bits);
       let rounding_floor = get_rounding_floor(qp.plaintext_bits);
       let plaintext_size = get_plaintext_size(qp.plaintext_bits);
 
       // perform division and rounding
-      let x: Vec<u64> = (0..Database::get_matrix_width(qp.elem_size, qp.plaintext_bits, qp.s))
+      (0..Database::get_matrix_width(qp.elem_size, qp.plaintext_bits))
           .map(|i| {
             let denoised_res = self.0[i].wrapping_sub(wrap_to_u64(noise[i]));
             let unscaled_res = denoised_res.wrapping_sub(qp.rhs[i]);
@@ -246,23 +236,17 @@ mod tests {
             }
             rounded_res % plaintext_size
           })
-          .collect();
-
-      let x_bytes = bytes_from_u64_slice(&x, qp.plaintext_bits, qp.elem_size + qp.s);
-      let x_bits = bytes_to_bits_le(&x_bytes);
-
-      let mut concat = Vec::with_capacity(size_of::<usize>() + (qp.s + 7) / 8);
-      concat.extend_from_slice(&row_index.to_le_bytes());
-      concat.extend(bits_to_bytes_le(&x_bits[..qp.s]));
-
-      let mut xored = random_oracle(concat.as_slice(), (qp.elem_size + 7) / 8);
-      xored.iter_mut().zip(bits_to_bytes_le(&x_bits[qp.s..]).iter()).for_each(|(x1, y2)| *x1 ^= y2);
-      xored
+          .collect()
     }
 
-    pub fn parse_output_as_base64_test(&self, qp: &QueryParams, noise: Vec<i64>, row_index: usize) -> String {
-      let bytes = self.parse_output_as_bytes_test(qp, noise, row_index);
-      base64::encode(bytes)
+    pub fn parse_output_as_bytes_test(&self, qp: &QueryParams, noise: Vec<i64>) -> Vec<u8> {
+      let row = self.parse_output_as_row_test(qp, noise);
+      bytes_from_u64_slice(&row, qp.plaintext_bits, qp.elem_size)
+    }
+
+    pub fn parse_output_as_base64_test(&self, qp: &QueryParams, noise: Vec<i64>) -> String {
+      let row = self.parse_output_as_row_test(qp, noise);
+      base64_from_u64_slice(&row, qp.plaintext_bits, qp.elem_size)
     }
   }
 
@@ -273,7 +257,6 @@ mod tests {
     let elem_size = 2u32.pow(8) as usize;
     let plaintext_bits = 12usize;
     let lwe_dim = 512;
-    let s = 2u32.pow(8) as usize;
     let std = (1u64 << 24) as usize;
 
     let db_elems = generate_db_elems(m, (elem_size + 7) / 8);
@@ -283,7 +266,6 @@ mod tests {
       m,
       elem_size,
       plaintext_bits,
-      s,
       std
     ).unwrap();
 
@@ -301,7 +283,7 @@ mod tests {
 
       // Removes server-added noise (testing only)
       let noise = tuple_resp.1;
-      let output = resp.parse_output_as_base64_test(&qp, noise, i);
+      let output = resp.parse_output_as_base64_test(&qp, noise);
       assert_eq!(output, db_elems[i]);
     }
   }
@@ -313,7 +295,6 @@ mod tests {
     let plaintext_bits = 10usize;
     let lwe_dim = 512;
     let db_elems = generate_db_elems(m, (elem_size + 7) / 8);
-    let s = 2u32.pow(8) as usize;
     let std = (1u64 << 43) as usize;
 
     let shard = Shard::from_base64_strings(
@@ -322,7 +303,6 @@ mod tests {
       m,
       elem_size,
       plaintext_bits,
-      s,
       std
     ).unwrap();
     let bp = shard.get_base_params();

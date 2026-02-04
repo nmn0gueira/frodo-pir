@@ -15,7 +15,6 @@ pub struct Database {
   m: usize,
   elem_size: usize,
   plaintext_bits: usize,
-  s: usize
 }
 
 impl Database {
@@ -24,7 +23,6 @@ impl Database {
     m: usize,
     elem_size: usize,
     plaintext_bits: usize,
-    s: usize
   ) -> ResultBoxedError<Self> {
     Ok(Self {
       entries: swap_matrix_fmt(&construct_rows(
@@ -32,12 +30,10 @@ impl Database {
         m,
         elem_size,
         plaintext_bits,
-        s
       )?),
       m,
       elem_size,
-      plaintext_bits,
-      s
+      plaintext_bits
     })
   }
 
@@ -46,11 +42,10 @@ impl Database {
     m: usize,
     elem_size: usize,
     plaintext_bits: usize,
-    s: usize
   ) -> ResultBoxedError<Self> {
     let file_contents: String = fs::read_to_string(db_file)?.parse()?;
     let elements: Vec<String> = serde_json::from_str(&file_contents)?;
-    Self::new(&elements, m, elem_size, plaintext_bits, s)
+    Self::new(&elements, m, elem_size, plaintext_bits)
   }
 
   pub fn switch_fmt(&mut self) {
@@ -81,8 +76,8 @@ impl Database {
   }
 
   /// Returns the width of the DB matrix
-  pub fn get_matrix_width(element_size: usize, plaintext_bits: usize, s: usize) -> usize {
-    let mut quo = (element_size + s) / plaintext_bits;
+  pub fn get_matrix_width(element_size: usize, plaintext_bits: usize) -> usize {
+    let mut quo = element_size / plaintext_bits;
     if element_size % plaintext_bits != 0 {
       quo += 1;
     }
@@ -91,7 +86,7 @@ impl Database {
 
   /// Returns the width of the DB matrix
   pub fn get_matrix_width_self(&self) -> usize {
-    Database::get_matrix_width(self.get_elem_size(), self.get_plaintext_bits(), self.get_s())
+    Database::get_matrix_width(self.get_elem_size(), self.get_plaintext_bits())
   }
 
   /// Get the matrix size
@@ -108,10 +103,6 @@ impl Database {
   pub fn get_plaintext_bits(&self) -> usize {
     self.plaintext_bits
   }
-
-  pub fn get_s(&self) -> usize {
-    self.s
-  }
 }
 
 /// The `BaseParams` object allows loading and interacting with params that
@@ -123,7 +114,6 @@ pub struct BaseParams {
   m: usize,         // the size of the DB
   elem_size: usize, // the size (in bits) of each element of the DB. Corresponds to `w` in paper.
   plaintext_bits: usize,
-  s: usize,
 
   std: usize,
 
@@ -142,7 +132,6 @@ impl BaseParams {
       m: db.m,
       elem_size: db.elem_size,
       plaintext_bits: db.plaintext_bits,
-      s: db.s,
     }
   }
 
@@ -206,10 +195,6 @@ impl BaseParams {
     self.plaintext_bits
   }
 
-  pub fn get_s(&self) -> usize {
-    self.s
-  }
-
   pub fn get_std(&self) -> usize {
     self.std
   }
@@ -253,31 +238,16 @@ fn construct_rows(
   m: usize,
   elem_size: usize,
   plaintext_bits: usize,
-  s: usize
 ) -> ResultBoxedError<Vec<Vec<u64>>> {
-  let row_width = Database::get_matrix_width(elem_size, plaintext_bits, s);
+  let row_width = Database::get_matrix_width(elem_size, plaintext_bits);
 
   let result = (0..m).map(|i| -> ResultBoxedError<Vec<u64>> {
     let mut row = Vec::with_capacity(row_width);
     let data = &elements[i];
-    let data_bytes = base64::decode(data)?;
-
-    let mut b_i = random_key((s + 7) / 8);
-
-    let i_bytes = i.to_le_bytes();  // Text says this should be a log(m) bit representation. Should we be using bool vectors here?
-
-    let mut concat = Vec::new();
-    concat.extend_from_slice(&i_bytes);
-    concat.extend_from_slice(&b_i);
-
-    // Write result of xor into the variable holding the output of the F random oracle
-    let mut xored = random_oracle(concat.as_slice(), (elem_size + 7) / 8);
-    xored.iter_mut().zip(data_bytes.iter()).for_each(|(x1, y2)| *x1 ^= y2);
-
-    b_i.append(&mut xored); // Appending the xored data to b_i is a move operation, more efficient
-    let bits = bytes_to_bits_le(&b_i);
-
+    let bytes = base64::decode(data)?;
+    let bits = bytes_to_bits_le(&bytes);
     for i in 0..row_width {
+      //println!("Creating matrix column {}", i);
       let end_bound = (i + 1) * plaintext_bits;
       if end_bound < bits.len() {
         row.push(bits_to_u64_le(&bits[i * plaintext_bits..end_bound])?);
