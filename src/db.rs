@@ -160,17 +160,21 @@ impl BaseParams {
     dim: usize,
     m: usize,
   ) -> Vec<Vec<u64>> {
-    let lhs =
-      swap_matrix_fmt(&generate_lwe_matrix_from_seed(public_seed, dim, m));
-    (0..db.get_matrix_width_self())
-      .map(|i| {
-        let mut col = Vec::with_capacity(m);
-        for r in &lhs {
-          col.push(db.vec_mult(r, i));
+    //let lhs = swap_matrix_fmt(&generate_lwe_matrix_from_seed(public_seed, dim, m));
+    let lhs = LweMatrixGenerator::new(public_seed, dim, m);
+    swap_matrix_fmt(&(0..dim)
+        .map(|lhs_row| {
+          println!("Lhs row {}", lhs_row);
+        let mut row = Vec::with_capacity(db.get_matrix_width_self());
+        let lhs_column = lhs.get_row_as_u64_vec(lhs_row);
+        for i in 0..db.get_matrix_width_self() {
+          row.push(db.vec_mult(&lhs_column, i));
         }
-        col
+        row
       })
-      .collect()
+      .collect::<Vec<Vec<u64>>>())
+
+
   }
 
   /// Writes the params struct as JSON to file
@@ -218,20 +222,14 @@ impl BaseParams {
 /// `CommonParams` holds the derived uniform matrix that is used for
 /// constructing the server's public parameters and the client query.
 #[derive(Serialize, Deserialize)]
-pub struct CommonParams(Vec<Vec<u64>>);
+pub struct CommonParams(LweMatrixGenerator);
 impl CommonParams {
-  // Returns the internal matrix
-  pub fn as_matrix(&self) -> &[Vec<u64>] {
-    &self.0
-  }
-
   /// Computes b = s*A + e using the seed used to generate the matrix of
   /// the public parameters
-  pub fn mult_left(&self, s: &[u64]) -> ResultBoxedError<Vec<u64>> {
-    let cols = self.as_matrix();
-    (0..cols.len())
+  pub fn mult_left(&mut self, s: &[u64]) -> ResultBoxedError<Vec<u64>> {
+    (0..self.0.get_num_columns())
       .map(|i| {
-        let s_a = vec_mult_u64_u64(s, &cols[i])?;
+        let s_a = vec_mult_u64_u64(s, &self.0.get_column_as_u64_vec(i))?;
         let e = random_ternary();
         Ok(s_a.wrapping_add(e))
       })
@@ -240,11 +238,13 @@ impl CommonParams {
 }
 impl From<&BaseParams> for CommonParams {
   fn from(params: &BaseParams) -> Self {
-    Self(generate_lwe_matrix_from_seed(
+    Self(
+      LweMatrixGenerator::new(
       params.public_seed,
       params.dim,
       params.m,
-    ))
+      )
+    )
   }
 }
 

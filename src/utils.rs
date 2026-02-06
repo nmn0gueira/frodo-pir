@@ -29,6 +29,7 @@ pub mod matrices {
   use rand_chacha::ChaCha20Rng;
   use rand_core::{OsRng, RngCore, SeedableRng};
   use rand_distr::{Distribution, Normal};
+  use serde::{Deserialize, Serialize};
   use crate::errors::ErrorUnexpectedInputSize;
   use crate::errors::ResultBoxedError;
 
@@ -69,6 +70,81 @@ pub mod matrices {
     }
     a
   }
+  
+
+  /// Generates a matrix of n x m for memory efficiency
+  #[derive(Serialize, Deserialize)]
+  pub struct LweMatrixGenerator {
+    seed: [u8; 32],
+    rows: usize,
+    columns: usize,
+  }
+
+  impl LweMatrixGenerator {
+    pub fn new(seed: [u8; 32], rows: usize, columns:usize) -> Self {
+      Self {
+        seed,
+        rows,
+        columns
+      }
+    }
+    pub fn get_element(&self, row: usize, col: usize) -> u64 {
+      let mut element_seed = self.seed;
+
+      for (i, byte) in row.to_le_bytes().iter().enumerate() {
+        element_seed[i % 32] ^= *byte;
+      }
+
+      for (i, byte) in col.to_le_bytes().iter().enumerate() {
+        element_seed[(i + 8) % 32] ^= *byte;
+      }
+
+      let mut rng = StdRng::from_seed(element_seed);
+      rng.next_u64()
+    }
+
+    pub fn get_row_as_u64_vec(&self, row: usize) -> Vec<u64> {
+      let mut row_seed = self.seed;
+      for (i, byte) in row.to_le_bytes().iter().enumerate() {
+        row_seed[i % 32] ^= *byte;
+      }
+      (0..self.columns)
+          .map(|col| {
+            let mut element_seed = row_seed;
+            for (i, byte) in col.to_le_bytes().iter().enumerate() {
+              element_seed[(i + 8) % 32] ^= *byte;
+            }
+            let mut rng = StdRng::from_seed(element_seed);
+            rng.next_u64()
+          })
+          .collect()
+    }
+
+    pub fn get_column_as_u64_vec(&self, col: usize) -> Vec<u64> {
+      let mut col_seed = self.seed;
+      for (i, byte) in col.to_le_bytes().iter().enumerate() {
+        col_seed[(i + 8) % 32] ^= *byte;
+      }
+      (0..self.rows)
+          .map(|row| {
+            let mut element_seed = col_seed;
+            for (i, byte) in row.to_le_bytes().iter().enumerate() {
+              element_seed[i % 32] ^= *byte;
+            }
+            let mut rng = StdRng::from_seed(element_seed);
+            rng.next_u64()
+          })
+          .collect()
+    }
+
+    pub fn get_num_rows(&self) -> usize {
+      self.rows
+    }
+    pub fn get_num_columns(&self) -> usize {
+      self.columns
+    }
+  }
+
 
   /// Multiplies a u64 vector with a u64 column vector
   pub fn vec_mult_u64_u64(row: &[u64], col: &[u64]) -> ResultBoxedError<u64> {

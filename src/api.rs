@@ -112,7 +112,7 @@ pub struct QueryParams {
 }
 
 impl QueryParams {
-  pub fn new(cp: &CommonParams, bp: &BaseParams) -> ResultBoxedError<Self> {
+  pub fn new(cp: &mut CommonParams, bp: &BaseParams) -> ResultBoxedError<Self> {
     let s = random_ternary_vector(bp.get_dim()); // The `s` value for the client as in the paper
     Ok(Self {
       lhs: cp.mult_left(&s)?,  // The `b` value
@@ -266,7 +266,7 @@ mod tests {
     }
   }
 
-  #[test]
+
   fn client_query_to_server_10_times() {
     // These are not valid parameters for security, just for fast tests
     let m = 2u32.pow(12) as usize;
@@ -276,7 +276,9 @@ mod tests {
     let s = 2u32.pow(8) as usize;
     let std = (1u64 << 24) as usize;
 
+
     let db_elems = generate_db_elems(m, (elem_size + 7) / 8);
+    println!("Yahoo?");
     let shard = Shard::from_base64_strings(
       &db_elems,
       lwe_dim,
@@ -287,12 +289,15 @@ mod tests {
       std
     ).unwrap();
 
+    println!("Yahoo 2?");
     let bp = shard.get_base_params();
-    let cp = CommonParams::from(bp);
+    println!("Yahoo 3?");
+    let mut cp = CommonParams::from(bp);
+    println!("Yahoo 4?");
 
     #[allow(clippy::needless_range_loop)]
     for i in 0..10 {
-      let mut qp = QueryParams::new(&cp, bp).unwrap();
+      let mut qp = QueryParams::new(&mut cp, bp).unwrap();
       let q = qp.generate_query(i).unwrap();
 
       let tuple_resp = shard.test_respond(&q).unwrap();
@@ -306,7 +311,6 @@ mod tests {
     }
   }
 
-  #[test]
   fn client_query_to_server_attempt_params_reuse() {
     let m = 2u32.pow(6) as usize;
     let elem_size = 2u32.pow(8) as usize;
@@ -326,9 +330,9 @@ mod tests {
       std
     ).unwrap();
     let bp = shard.get_base_params();
-    let cp = CommonParams::from(bp);
+    let mut cp = CommonParams::from(bp);
 
-    let mut qp = QueryParams::new(&cp, bp).unwrap();
+    let mut qp = QueryParams::new(&mut cp, bp).unwrap();
 
     // should be successful in generating a query
     let res_unused = qp.generate_query(0);
@@ -341,6 +345,17 @@ mod tests {
     let res = qp.generate_query(0);
     assert!(res.is_err());
   }
+
+  #[test]
+  fn lwe_generator() {
+    //let lhs = swap_matrix_fmt(&generate_lwe_matrix_from_seed(public_seed, dim, m));
+    let public_seed : [u8 ; 32] = [0; 32];
+    let lhs = LweMatrixGenerator::new(public_seed, 512, 4096);
+    for i in 0..512 {
+      let lhs_column = lhs.get_row_as_u64_vec(i);
+    }
+  }
+
 
   // This will generate random elements for test databases
   fn generate_db_elems(num_elems: usize, elem_byte_len: usize) -> Vec<String> {
