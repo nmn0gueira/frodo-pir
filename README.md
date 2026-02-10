@@ -1,6 +1,10 @@
-# FrodoPIR
+# SPIR
 
-![FrodoPIR workflow](https://github.com/brave-experiments/frodo-pir/actions/workflows/rust.yml/badge.svg)
+This repository contains an implementation of SPIR, a Symmetric PIR scheme derived from FrodoPIR, utilizing noise flooding to improve database privacy.
+
+The original README file below can be used for reference as it still largely applies to SPIR.
+
+---
 
 An implementation of the FrodoPIR Private Information Retrieval scheme. Find the details over [our eprint paper](https://eprint.iacr.org/2022/981.pdf).
 
