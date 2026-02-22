@@ -202,7 +202,6 @@ mod tests {
 
   #[test]
   fn client_query_to_server_10_times() {
-    // These are not valid parameters for security, just for fast tests
     let m = 2u32.pow(12) as usize;
     let elem_size = 2u32.pow(8) as usize;
     let plaintext_bits = 12usize;

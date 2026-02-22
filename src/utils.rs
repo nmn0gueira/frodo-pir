@@ -260,8 +260,4 @@ pub mod format {
   ) -> String {
     base64::encode(bytes_from_u64_slice(v, entry_bit_len, total_bit_len))
   }
-
-  pub fn wrap_to_u64(x: i64) -> u64 {
-    (x as u64).wrapping_add(u64::MAX/2 + 1)
-  }
 }
