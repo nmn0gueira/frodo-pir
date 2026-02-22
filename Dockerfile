@@ -1,4 +1,4 @@
-FROM rust:1.62
+FROM rust:1.93
 
 RUN mkdir /frodo-pir
 WORKDIR /frodo-pir
