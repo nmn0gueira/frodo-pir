@@ -73,7 +73,7 @@ impl Shard {
     let q = q.as_slice();
     let resp = Response(
       (0..self.db.get_matrix_width_self())
-        .map(|i| self.db.vec_mult(q, i).wrapping_add(wrap_to_u64(sampled_gaussian[i])))
+        .map(|i| self.db.vec_mult(q, i).wrapping_add_signed(sampled_gaussian[i]))
         .collect(),
     );
     let ser = bincode::serialize(&resp);
@@ -210,65 +210,8 @@ mod tests {
   use super::*;
   use rand_core::{OsRng, RngCore};
 
-  impl Shard {
-    pub fn test_respond(&self, q: &Query) -> ResultBoxedError<(Vec<u8>, Vec<i64>)> {
-      // get matrix width self returns omega
-      let sampled_gaussian = random_rounded_gaussian_vector(self.db.get_matrix_width_self(), 0.0, (1u64 << 43) as f64);
-      let q = q.as_slice();
-      let resp = Response(
-        (0..self.db.get_matrix_width_self())
-            .map(|i| self.db.vec_mult(q, i).wrapping_add(wrap_to_u64(sampled_gaussian[i])))
-            .collect(),
-      );
-      let ser = bincode::serialize(&resp);
-
-      Ok((ser?, sampled_gaussian))
-    }
-  }
-
-  impl Response {
-    pub fn parse_output_as_bytes_test(&self, qp: &QueryParams, noise: Vec<i64>, row_index: usize) -> Vec<u8> {
-      // get parameters for rounding
-      let rounding_factor = get_rounding_factor(qp.plaintext_bits);
-      let rounding_floor = get_rounding_floor(qp.plaintext_bits);
-      let plaintext_size = get_plaintext_size(qp.plaintext_bits);
-
-      // perform division and rounding
-      let x: Vec<u64> = (0..Database::get_matrix_width(qp.elem_size, qp.plaintext_bits, qp.s))
-          .map(|i| {
-            let denoised_res = self.0[i].wrapping_sub(wrap_to_u64(noise[i]));
-            let unscaled_res = denoised_res.wrapping_sub(qp.rhs[i]);
-            let scaled_res = unscaled_res / rounding_factor;
-            let scaled_rem = unscaled_res % rounding_factor;
-            let mut rounded_res = scaled_res;
-            if scaled_rem > rounding_floor {
-              rounded_res += 1;
-            }
-            rounded_res % plaintext_size
-          })
-          .collect();
-
-      let x_bytes = bytes_from_u64_slice(&x, qp.plaintext_bits, qp.elem_size + qp.s);
-      let x_bits = bytes_to_bits_le(&x_bytes);
-
-      let mut concat = Vec::with_capacity(size_of::<usize>() + (qp.s + 7) / 8);
-      concat.extend_from_slice(&row_index.to_le_bytes());
-      concat.extend(bits_to_bytes_le(&x_bits[..qp.s]));
-
-      let mut xored = random_oracle(concat.as_slice(), (qp.elem_size + 7) / 8);
-      xored.iter_mut().zip(bits_to_bytes_le(&x_bits[qp.s..]).iter()).for_each(|(x1, y2)| *x1 ^= y2);
-      xored
-    }
-
-    pub fn parse_output_as_base64_test(&self, qp: &QueryParams, noise: Vec<i64>, row_index: usize) -> String {
-      let bytes = self.parse_output_as_bytes_test(qp, noise, row_index);
-      base64::encode(bytes)
-    }
-  }
-
   #[test]
   fn client_query_to_server_10_times() {
-    // These are not valid parameters for security, just for fast tests
     let m = 2u32.pow(12) as usize;
     let elem_size = 2u32.pow(8) as usize;
     let plaintext_bits = 12usize;
@@ -295,13 +238,10 @@ mod tests {
       let mut qp = QueryParams::new(&cp, bp).unwrap();
       let q = qp.generate_query(i).unwrap();
 
-      let tuple_resp = shard.test_respond(&q).unwrap();
-      let d_resp = tuple_resp.0;
+      let d_resp = shard.respond(&q).unwrap();
       let resp: Response = bincode::deserialize(&d_resp).unwrap();
 
-      // Removes server-added noise (testing only)
-      let noise = tuple_resp.1;
-      let output = resp.parse_output_as_base64_test(&qp, noise, i);
+      let output = resp.parse_output_as_base64(&qp, i);
       assert_eq!(output, db_elems[i]);
     }
   }
